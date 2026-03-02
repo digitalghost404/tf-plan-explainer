@@ -3,7 +3,9 @@
 # =============================================================================
 .env
 .env.*
-!.env.local.example   # keep the example template — it has no real secrets
+
+# keep the example template — it has no real secrets
+!.env.local.example   
 
 # =============================================================================
 # NEXT.JS
