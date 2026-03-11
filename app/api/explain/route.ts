@@ -106,15 +106,19 @@ export async function POST(request: NextRequest) {
     try {
       analysis = JSON.parse(content.text) as PlanAnalysis;
     } catch {
-      return NextResponse.json(
-        { error: 'Claude returned invalid JSON', raw: content.text },
-        { status: 500 }
-      );
+      // Never return Claude's raw response to the client — it may contain
+      // partial plan content or internal system prompt details.
+      return NextResponse.json({ error: 'Claude returned invalid JSON' }, { status: 500 });
     }
 
     return NextResponse.json(analysis);
   } catch (err) {
-    console.error('Claude API error:', err);
+    // Log only the message and type — not the full error object — to avoid
+    // leaking stack traces or request details into log aggregators.
+    console.error('Claude API error:', {
+      message: err instanceof Error ? err.message : 'Unknown error',
+      type: err instanceof Error ? err.name : typeof err,
+    });
     return NextResponse.json({ error: 'Failed to contact Claude API' }, { status: 500 });
   }
 }

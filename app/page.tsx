@@ -19,24 +19,39 @@ export default function Home() {
     setError(null);
     setAnalysis(null);
 
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 60_000);
+
     try {
       const res = await fetch('/api/explain', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ plan }),
+        signal: controller.signal,
       });
 
-      const data = await res.json();
-
       if (!res.ok) {
-        setError(data?.error ?? `Server error: ${res.status}`);
+        let message = `Server error: ${res.status}`;
+        try {
+          const data = await res.json();
+          message = data?.error ?? message;
+        } catch {
+          // Response wasn't JSON — use the HTTP status message
+        }
+        setError(message);
         return;
       }
 
+      const data = await res.json();
       setAnalysis(data as PlanAnalysis);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Network error — is the dev server running?');
+      if (err instanceof Error && err.name === 'AbortError') {
+        setError('Request timed out — the server took too long to respond.');
+      } else {
+        setError(err instanceof Error ? err.message : 'Network error — is the dev server running?');
+      }
     } finally {
+      clearTimeout(timeoutId);
       setLoading(false);
     }
   }
