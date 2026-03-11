@@ -36,6 +36,7 @@ export interface VulnerabilityFinding {
   severity: VulnerabilitySeverity;
   description: string;
   recommendation: string;
+  remediationSnippet: string;
 }
 
 export interface VulnerabilityContext {
@@ -44,12 +45,34 @@ export interface VulnerabilityContext {
   disclaimer: string;
 }
 
+export interface Warning {
+  message: string;
+  remediationSnippet?: string;
+}
+
+export interface ModuleFinding {
+  moduleName: string;
+  source: string;
+  currentVersion: string;
+  latestKnownVersion: string;
+  isPinned: boolean;
+  isOutdated: boolean;
+  recommendation: string;
+}
+
+export interface ModuleAnalysis {
+  findings: ModuleFinding[];
+  scannedModules: number;
+  disclaimer: string;
+}
+
 export interface PlanAnalysis {
   riskLevel: RiskLevel;
   summary: string;
   counts: { added: number; changed: number; destroyed: number };
   changes: ResourceChange[];
-  warnings: string[];
+  warnings: Warning[];
   costEstimate: CostEstimate;
   vulnerabilityContext: VulnerabilityContext;
+  moduleAnalysis: ModuleAnalysis;
 }

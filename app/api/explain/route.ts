@@ -19,7 +19,12 @@ The JSON must match this exact shape:
       "isDestructive": boolean
     }
   ],
-  "warnings": ["string describing any data loss or service disruption risk"],
+  "warnings": [
+    {
+      "message": "description of the risk",
+      "remediationSnippet": "resource \"type\" \"name\" {\n  attribute = fixed_value\n}"
+    }
+  ],
   "costEstimate": {
     "provider": "AWS" | "Azure" | "GCP" | "Unknown",
     "monthlyTotal": number,
@@ -45,11 +50,27 @@ The JSON must match this exact shape:
         "cveId": "CVE-YYYY-NNNNN or N/A",
         "severity": "CRITICAL" | "HIGH" | "MEDIUM" | "LOW" | "INFORMATIONAL",
         "description": "Plain-English explanation of the vulnerability",
-        "recommendation": "Specific remediation: upgrade to version X.Y.Z"
+        "recommendation": "Specific remediation: upgrade to version X.Y.Z",
+        "remediationSnippet": "minimal HCL resource block with the fix applied, e.g. bumped engine_version"
       }
     ],
     "scannedResources": number,
     "disclaimer": "one sentence noting findings are based on training data with a knowledge cutoff"
+  },
+  "moduleAnalysis": {
+    "findings": [
+      {
+        "moduleName": "module.vpc",
+        "source": "terraform-aws-modules/vpc/aws",
+        "currentVersion": "3.14.0",
+        "latestKnownVersion": "5.1.2",
+        "isPinned": true,
+        "isOutdated": true,
+        "recommendation": "Upgrade to 5.x; review CHANGELOG for breaking changes"
+      }
+    ],
+    "scannedModules": number,
+    "disclaimer": "Version data from training knowledge; verify at registry.terraform.io"
   }
 }
 
@@ -63,6 +84,7 @@ For the warnings array, include explicit callouts for:
 - Resources being replaced (destroy then create), which causes downtime
 - Potential data loss scenarios
 - Security group or IAM changes that could affect access
+Omit remediationSnippet from a warning object if no concrete HCL fix applies (e.g. pure operational warnings). Include it when there is a specific HCL attribute change that addresses the risk.
 
 Cost estimation rules:
 - Detect the cloud provider from resource type prefixes: "aws_" → AWS, "azurerm_" or "azuread_" → Azure, "google_" → GCP; if mixed or unrecognized → Unknown
@@ -79,11 +101,22 @@ Vulnerability scanning rules:
 - For each versioned resource, check against known CVEs and security advisories from your training data
 - Include CRITICAL/HIGH/MEDIUM findings; include LOW/INFORMATIONAL only if the version is significantly out of date
 - If no version attribute is present on a resource, skip it — do not assume defaults
+- remediationSnippet for each finding: a minimal HCL resource block showing only the resource type, name, and the corrected version attribute; keep it concise
 - scannedResources = count of resources that had at least one version attribute checked
 - If no versioned resources found, return findings: []
 - Invalid plan fallback for vulnerabilityContext: { "findings": [], "scannedResources": 0, "disclaimer": "No resources detected." }
 
-If the input is not a valid Terraform plan, set riskLevel to "LOW", summary to "No valid Terraform plan detected.", counts to all zeros, changes to [], warnings to [], costEstimate to { "provider": "Unknown", "monthlyTotal": 0, "yearlyTotal": 0, "currency": "USD", "breakdown": [], "confidence": "HIGH", "disclaimer": "No resources detected." }, and vulnerabilityContext to { "findings": [], "scannedResources": 0, "disclaimer": "No resources detected." }.`;
+Module analysis rules:
+- Detect all module blocks in the plan; extract source and version pin for each
+- isPinned = false if no version constraint is present — always flag as needing a pin
+- isOutdated = true if the pinned version is behind the latest known version from your training data
+- currentVersion = the version string from the version attribute, or "unpinned" if absent
+- latestKnownVersion = the most recent version you know of from training data
+- scannedModules = count of module blocks found
+- If no modules found: findings: [], scannedModules: 0
+- Invalid plan fallback for moduleAnalysis: { "findings": [], "scannedModules": 0, "disclaimer": "No modules detected." }
+
+If the input is not a valid Terraform plan, set riskLevel to "LOW", summary to "No valid Terraform plan detected.", counts to all zeros, changes to [], warnings to [], costEstimate to { "provider": "Unknown", "monthlyTotal": 0, "yearlyTotal": 0, "currency": "USD", "breakdown": [], "confidence": "HIGH", "disclaimer": "No resources detected." }, vulnerabilityContext to { "findings": [], "scannedResources": 0, "disclaimer": "No resources detected." }, and moduleAnalysis to { "findings": [], "scannedModules": 0, "disclaimer": "No modules detected." }.`;
 
 export async function POST(request: NextRequest) {
   let plan: string;
