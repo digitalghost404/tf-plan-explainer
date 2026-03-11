@@ -25,12 +25,13 @@ export default function PlanInput({ plan, onChange, onSubmit, loading }: PlanInp
         <label htmlFor="plan-input" className="text-sm font-medium text-gray-300">
           Paste your Terraform plan output
         </label>
-        <span className={`text-xs ${isOverLimit ? 'text-red-400' : 'text-gray-500'}`}>
-          {charCount.toLocaleString()} / {maxChars.toLocaleString()} chars
+        <span suppressHydrationWarning className={`text-xs ${isOverLimit ? 'text-red-400' : 'text-gray-500'}`}>
+          {charCount.toLocaleString('en-US')} / {maxChars.toLocaleString('en-US')} chars
         </span>
       </div>
 
       <textarea
+        suppressHydrationWarning
         id="plan-input"
         value={plan}
         onChange={(e) => onChange(e.target.value)}
