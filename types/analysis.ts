@@ -26,6 +26,24 @@ export interface CostEstimate {
   disclaimer: string;
 }
 
+export type VulnerabilitySeverity = 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW' | 'INFORMATIONAL';
+
+export interface VulnerabilityFinding {
+  resource: string;
+  resourceType: string;
+  currentVersion: string;
+  cveId: string;
+  severity: VulnerabilitySeverity;
+  description: string;
+  recommendation: string;
+}
+
+export interface VulnerabilityContext {
+  findings: VulnerabilityFinding[];
+  scannedResources: number;
+  disclaimer: string;
+}
+
 export interface PlanAnalysis {
   riskLevel: RiskLevel;
   summary: string;
@@ -33,4 +51,5 @@ export interface PlanAnalysis {
   changes: ResourceChange[];
   warnings: string[];
   costEstimate: CostEstimate;
+  vulnerabilityContext: VulnerabilityContext;
 }

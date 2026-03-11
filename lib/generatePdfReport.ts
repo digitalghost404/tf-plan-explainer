@@ -1,4 +1,4 @@
-import type { PlanAnalysis, RiskLevel } from '@/types/analysis';
+import type { PlanAnalysis, RiskLevel, VulnerabilitySeverity } from '@/types/analysis';
 
 const RISK_COLORS: Record<RiskLevel, [number, number, number]> = {
   HIGH:   [185,  28,  28],
@@ -213,7 +213,76 @@ export async function generatePdfReport(analysis: PlanAnalysis): Promise<void> {
     y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 10;
   }
 
-  // ── 7. Disclaimer ─────────────────────────────────────────────────────────────
+  // ── 7. Vulnerability Context ──────────────────────────────────────────────────
+
+  const vuln = analysis.vulnerabilityContext;
+  sectionTitle('Vulnerability Context');
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(10);
+  doc.setTextColor(50, 50, 50);
+  doc.text(
+    `${vuln.findings.length} finding${vuln.findings.length !== 1 ? 's' : ''} across ${vuln.scannedResources} scanned resource${vuln.scannedResources !== 1 ? 's' : ''}`,
+    margin, y,
+  );
+  y += 8;
+
+  if (vuln.findings.length > 0) {
+    const severityColors: Record<VulnerabilitySeverity, [number, number, number]> = {
+      CRITICAL:      [185,  28,  28],
+      HIGH:          [194,  65,  12],
+      MEDIUM:        [161,  98,   7],
+      LOW:           [ 29, 100, 180],
+      INFORMATIONAL: [100, 100, 100],
+    };
+
+    autoTable(doc, {
+      startY: y,
+      margin: { left: margin, right: margin },
+      head: [['Resource', 'Version', 'CVE ID', 'Severity', 'Recommendation']],
+      body: vuln.findings.map((f) => [
+        f.resource,
+        f.currentVersion,
+        f.cveId,
+        f.severity,
+        f.recommendation,
+      ]),
+      styles: { fontSize: 8, cellPadding: 2.5 },
+      headStyles: { fillColor: [30, 30, 46], textColor: 255, fontStyle: 'bold' },
+      columnStyles: {
+        0: { cellWidth: 45, font: 'courier' },
+        1: { cellWidth: 28 },
+        2: { cellWidth: 28, font: 'courier' },
+        3: { cellWidth: 22, halign: 'center', fontStyle: 'bold' },
+      },
+      didParseCell(data) {
+        if (data.column.index === 3 && data.section === 'body') {
+          const sev = String(data.cell.raw ?? '') as VulnerabilitySeverity;
+          const c = severityColors[sev];
+          if (c) data.cell.styles.textColor = c;
+        }
+      },
+    });
+
+    y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 10;
+  } else {
+    checkPageBreak(10);
+    doc.setFont('helvetica', 'italic');
+    doc.setFontSize(9);
+    doc.setTextColor(100, 100, 100);
+    doc.text('No known vulnerabilities detected.', margin, y);
+    y += 10;
+  }
+
+  doc.setFont('helvetica', 'italic');
+  doc.setFontSize(8);
+  doc.setTextColor(120, 120, 120);
+  const vulnDisclaimer = doc.splitTextToSize(vuln.disclaimer, contentW);
+  checkPageBreak(vulnDisclaimer.length * 5 + 8);
+  doc.text(vulnDisclaimer, margin, y);
+  y += vulnDisclaimer.length * 5 + 8;
+
+  // ── 8. Disclaimer ─────────────────────────────────────────────────────────────
 
   checkPageBreak(20);
   sectionTitle('Disclaimer');

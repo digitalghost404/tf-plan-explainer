@@ -35,6 +35,21 @@ The JSON must match this exact shape:
     ],
     "confidence": "HIGH" | "MEDIUM" | "LOW",
     "disclaimer": "one sentence disclaimer about estimate accuracy"
+  },
+  "vulnerabilityContext": {
+    "findings": [
+      {
+        "resource": "resource_type.resource_name",
+        "resourceType": "resource_type",
+        "currentVersion": "engine/runtime and version string",
+        "cveId": "CVE-YYYY-NNNNN or N/A",
+        "severity": "CRITICAL" | "HIGH" | "MEDIUM" | "LOW" | "INFORMATIONAL",
+        "description": "Plain-English explanation of the vulnerability",
+        "recommendation": "Specific remediation: upgrade to version X.Y.Z"
+      }
+    ],
+    "scannedResources": number,
+    "disclaimer": "one sentence noting findings are based on training data with a knowledge cutoff"
   }
 }
 
@@ -59,7 +74,16 @@ Cost estimation rules:
 - confidence: HIGH if all resources have well-known, stable pricing; MEDIUM if some assumptions were necessary; LOW if many resources have uncertain or highly variable pricing
 - disclaimer: one sentence noting estimates are approximate and based on standard assumptions
 
-If the input is not a valid Terraform plan, set riskLevel to "LOW", summary to "No valid Terraform plan detected.", counts to all zeros, changes to [], warnings to [], and costEstimate to { "provider": "Unknown", "monthlyTotal": 0, "yearlyTotal": 0, "currency": "USD", "breakdown": [], "confidence": "HIGH", "disclaimer": "No resources detected." }.`;
+Vulnerability scanning rules:
+- Scan all resources for explicit version attributes: engine_version, kubernetes_version, runtime, ami_id, node_version, cluster_version, image, etc.
+- For each versioned resource, check against known CVEs and security advisories from your training data
+- Include CRITICAL/HIGH/MEDIUM findings; include LOW/INFORMATIONAL only if the version is significantly out of date
+- If no version attribute is present on a resource, skip it — do not assume defaults
+- scannedResources = count of resources that had at least one version attribute checked
+- If no versioned resources found, return findings: []
+- Invalid plan fallback for vulnerabilityContext: { "findings": [], "scannedResources": 0, "disclaimer": "No resources detected." }
+
+If the input is not a valid Terraform plan, set riskLevel to "LOW", summary to "No valid Terraform plan detected.", counts to all zeros, changes to [], warnings to [], costEstimate to { "provider": "Unknown", "monthlyTotal": 0, "yearlyTotal": 0, "currency": "USD", "breakdown": [], "confidence": "HIGH", "disclaimer": "No resources detected." }, and vulnerabilityContext to { "findings": [], "scannedResources": 0, "disclaimer": "No resources detected." }.`;
 
 export async function POST(request: NextRequest) {
   let plan: string;
