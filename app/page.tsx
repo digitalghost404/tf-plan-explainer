@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import PlanInput from '@/components/PlanInput';
 import RiskSummary from '@/components/RiskSummary';
+import CostEstimate from '@/components/CostEstimate';
 import type { PlanAnalysis } from '@/types/analysis';
 
 export default function Home() {
@@ -71,8 +72,9 @@ export default function Home() {
 
       {/* Results */}
       {analysis && (
-        <section>
+        <section className="flex flex-col gap-8">
           <RiskSummary analysis={analysis} />
+          <CostEstimate estimate={analysis.costEstimate} />
         </section>
       )}
     </main>

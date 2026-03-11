@@ -4,7 +4,7 @@ import type { PlanAnalysis } from '@/types/analysis';
 
 const client = new Anthropic();
 
-const SYSTEM_PROMPT = `You are a Terraform plan risk analyst. When given Terraform plan output, analyze it and respond with ONLY valid JSON — no markdown, no explanation, no code fences.
+const SYSTEM_PROMPT = `You are a Terraform plan risk analyst and cloud cost estimator. When given Terraform plan output, analyze it and respond with ONLY valid JSON — no markdown, no explanation, no code fences.
 
 The JSON must match this exact shape:
 {
@@ -19,7 +19,23 @@ The JSON must match this exact shape:
       "isDestructive": boolean
     }
   ],
-  "warnings": ["string describing any data loss or service disruption risk"]
+  "warnings": ["string describing any data loss or service disruption risk"],
+  "costEstimate": {
+    "provider": "AWS" | "Azure" | "GCP" | "Unknown",
+    "monthlyTotal": number,
+    "yearlyTotal": number,
+    "currency": "USD",
+    "breakdown": [
+      {
+        "resource": "resource_type.resource_name",
+        "type": "resource_type",
+        "monthlyCost": number,
+        "assumptions": "brief description of pricing assumptions"
+      }
+    ],
+    "confidence": "HIGH" | "MEDIUM" | "LOW",
+    "disclaimer": "one sentence disclaimer about estimate accuracy"
+  }
 }
 
 Risk level rules:
@@ -33,7 +49,17 @@ For the warnings array, include explicit callouts for:
 - Potential data loss scenarios
 - Security group or IAM changes that could affect access
 
-If the input is not a valid Terraform plan, set riskLevel to "LOW", summary to "No valid Terraform plan detected.", counts to all zeros, changes to [], and warnings to [].`;
+Cost estimation rules:
+- Detect the cloud provider from resource type prefixes: "aws_" → AWS, "azurerm_" or "azuread_" → Azure, "google_" → GCP; if mixed or unrecognized → Unknown
+- For each resource being CREATED or REPLACED, estimate the monthly USD cost using reasonable default assumptions (on-demand pricing, typical region like us-east-1, standard tier, 730 hours/month)
+- Resources being DESTROYED, or free resources (IAM roles, security groups, VPCs, DNS records, etc.), get monthlyCost of 0
+- Set assumptions to a brief string like "t3.medium, on-demand, us-east-1, 730 hrs/month" or "free resource" if zero cost
+- monthlyTotal = sum of all monthlyCost values in breakdown
+- yearlyTotal = monthlyTotal * 12
+- confidence: HIGH if all resources have well-known, stable pricing; MEDIUM if some assumptions were necessary; LOW if many resources have uncertain or highly variable pricing
+- disclaimer: one sentence noting estimates are approximate and based on standard assumptions
+
+If the input is not a valid Terraform plan, set riskLevel to "LOW", summary to "No valid Terraform plan detected.", counts to all zeros, changes to [], warnings to [], and costEstimate to { "provider": "Unknown", "monthlyTotal": 0, "yearlyTotal": 0, "currency": "USD", "breakdown": [], "confidence": "HIGH", "disclaimer": "No resources detected." }.`;
 
 export async function POST(request: NextRequest) {
   let plan: string;
@@ -61,7 +87,7 @@ export async function POST(request: NextRequest) {
   try {
     const message = await client.messages.create({
       model: 'claude-sonnet-4-6',
-      max_tokens: 4096,
+      max_tokens: 8192,
       system: SYSTEM_PROMPT,
       messages: [
         {
