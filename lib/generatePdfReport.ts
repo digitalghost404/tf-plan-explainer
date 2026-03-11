@@ -1,4 +1,4 @@
-import type { PlanAnalysis, RiskLevel, VulnerabilitySeverity, CISStatus } from '@/types/analysis';
+import type { PlanAnalysis, RiskLevel, VulnerabilitySeverity, CISStatus, KubernetesSeverity, KubernetesCheckType } from '@/types/analysis';
 
 const RISK_COLORS: Record<RiskLevel, [number, number, number]> = {
   HIGH:   [185,  28,  28],
@@ -412,7 +412,147 @@ export async function generatePdfReport(analysis: PlanAnalysis): Promise<void> {
   doc.text(cisDisclaimer, margin, y);
   y += cisDisclaimer.length * 5 + 8;
 
-  // ── 10. Disclaimer ────────────────────────────────────────────────────────────
+  // ── 10. Kubernetes Deep Analysis ──────────────────────────────────────────────
+
+  const k8s = analysis.kubernetesAnalysis;
+  sectionTitle('Kubernetes Deep Analysis');
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(10);
+  doc.setTextColor(50, 50, 50);
+  doc.text(
+    `${k8s.findings.length} finding${k8s.findings.length !== 1 ? 's' : ''} · ${k8s.scannedResources} resource${k8s.scannedResources !== 1 ? 's' : ''} scanned`,
+    margin, y,
+  );
+  y += 8;
+
+  if (k8s.findings.length > 0) {
+    const k8sSeverityColors: Record<KubernetesSeverity, [number, number, number]> = {
+      HIGH:   [185,  28,  28],
+      MEDIUM: [161,  98,   7],
+      LOW:    [ 29, 100, 180],
+    };
+
+    autoTable(doc, {
+      startY: y,
+      margin: { left: margin, right: margin },
+      head: [['Resource', 'Check Type', 'Severity', 'Description', 'Recommendation']],
+      body: k8s.findings.map((f) => [
+        f.resource,
+        f.checkType.replace(/_/g, ' '),
+        f.severity,
+        f.description,
+        f.recommendation,
+      ]),
+      styles: { fontSize: 8, cellPadding: 2.5 },
+      headStyles: { fillColor: [30, 30, 46], textColor: 255, fontStyle: 'bold' },
+      columnStyles: {
+        0: { cellWidth: 45, font: 'courier' },
+        1: { cellWidth: 28 },
+        2: { cellWidth: 18, halign: 'center', fontStyle: 'bold' },
+      },
+      didParseCell(data) {
+        if (data.column.index === 2 && data.section === 'body') {
+          const sev = String(data.cell.raw ?? '') as KubernetesSeverity;
+          const c = k8sSeverityColors[sev];
+          if (c) data.cell.styles.textColor = c;
+        }
+      },
+    });
+
+    y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 6;
+  } else {
+    checkPageBreak(10);
+    doc.setFont('helvetica', 'italic');
+    doc.setFontSize(9);
+    doc.setTextColor(100, 100, 100);
+    doc.text('No Kubernetes resources detected.', margin, y);
+    y += 8;
+  }
+
+  doc.setFont('helvetica', 'italic');
+  doc.setFontSize(8);
+  doc.setTextColor(120, 120, 120);
+  const k8sDisclaimer = doc.splitTextToSize(k8s.disclaimer, contentW);
+  checkPageBreak(k8sDisclaimer.length * 5 + 8);
+  doc.text(k8sDisclaimer, margin, y);
+  y += k8sDisclaimer.length * 5 + 8;
+
+  // ── 11. Savings Plan Recommendations ──────────────────────────────────────────
+
+  const savings = analysis.savingsPlanReport;
+  sectionTitle('Savings Plan Recommendations');
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(10);
+  doc.setTextColor(50, 50, 50);
+  doc.text(
+    `${savings.opportunities.length} eligible resource${savings.opportunities.length !== 1 ? 's' : ''}`,
+    margin, y,
+  );
+  y += 6;
+
+  if (savings.opportunities.length > 0) {
+    doc.setFontSize(9);
+    doc.setTextColor(80, 80, 80);
+    doc.text(
+      `On-Demand Total: $${savings.totalOnDemandMonthly.toFixed(2)}/mo   |   1yr Savings: $${savings.totalSavingsMonthly1yr.toFixed(2)}/mo   |   3yr Savings: $${savings.totalSavingsMonthly3yr.toFixed(2)}/mo`,
+      margin, y,
+    );
+    y += 8;
+
+    autoTable(doc, {
+      startY: y,
+      margin: { left: margin, right: margin },
+      head: [['Resource', 'Instance Type', 'On-Demand/mo', '1yr Reserved', '1yr Savings', '3yr Reserved', '3yr Savings']],
+      body: savings.opportunities.map((o) => [
+        o.resource,
+        o.instanceType,
+        `$${o.onDemandMonthly.toFixed(2)}`,
+        `$${o.reserved1yrMonthly.toFixed(2)}`,
+        `$${o.savingsMonthly1yr.toFixed(2)} (${o.savingsPercent1yr.toFixed(1)}%)`,
+        `$${o.reserved3yrMonthly.toFixed(2)}`,
+        `$${o.savingsMonthly3yr.toFixed(2)} (${o.savingsPercent3yr.toFixed(1)}%)`,
+      ]),
+      styles: { fontSize: 8, cellPadding: 2.5 },
+      headStyles: { fillColor: [30, 30, 46], textColor: 255, fontStyle: 'bold' },
+      columnStyles: {
+        0: { cellWidth: 45, font: 'courier' },
+        2: { cellWidth: 22, halign: 'right' },
+        3: { cellWidth: 22, halign: 'right' },
+        4: { cellWidth: 28, halign: 'right' },
+        5: { cellWidth: 22, halign: 'right' },
+        6: { cellWidth: 28, halign: 'right' },
+      },
+      didParseCell(data) {
+        if (data.column.index === 4 && data.section === 'body') {
+          data.cell.styles.textColor = [21, 128, 61];
+        }
+        if (data.column.index === 6 && data.section === 'body') {
+          data.cell.styles.textColor = [5, 150, 105];
+        }
+      },
+    });
+
+    y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 6;
+  } else {
+    checkPageBreak(10);
+    doc.setFont('helvetica', 'italic');
+    doc.setFontSize(9);
+    doc.setTextColor(100, 100, 100);
+    doc.text('No eligible reserved-pricing resources detected.', margin, y);
+    y += 8;
+  }
+
+  doc.setFont('helvetica', 'italic');
+  doc.setFontSize(8);
+  doc.setTextColor(120, 120, 120);
+  const savingsDisclaimer = doc.splitTextToSize(savings.disclaimer, contentW);
+  checkPageBreak(savingsDisclaimer.length * 5 + 8);
+  doc.text(savingsDisclaimer, margin, y);
+  y += savingsDisclaimer.length * 5 + 8;
+
+  // ── 12. Disclaimer ────────────────────────────────────────────────────────────
 
   checkPageBreak(20);
   sectionTitle('Disclaimer');
