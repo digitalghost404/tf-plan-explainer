@@ -1,6 +1,6 @@
 # Terraform Plan Explainer
 
-A web app that translates raw `terraform plan` output into a plain-English risk summary, powered by Claude. Paste your plan, get back a risk level, a per-resource breakdown, and explicit warnings about anything destructive — in seconds.
+A web app that translates raw `terraform plan` output into a plain-English risk summary and cloud cost estimate, powered by Claude. Paste your plan, get back a risk level, a per-resource breakdown, explicit warnings about anything destructive, and an estimated monthly/yearly cost — in seconds.
 
 ---
 
@@ -23,6 +23,7 @@ For every plan you submit, the app returns:
 | **Resource counts** | How many resources are being added, changed, and destroyed |
 | **Warnings box** | Explicit callouts for destroys, replacements, data loss, or security changes |
 | **Per-resource breakdown** | Every changed resource listed with its action type and a one-sentence explanation |
+| **Cost estimate** | Monthly and yearly USD cost totals, per-resource breakdown with pricing assumptions, confidence level, and provider detection (AWS / Azure / GCP) |
 
 ### Risk level logic
 
@@ -31,6 +32,18 @@ For every plan you submit, the app returns:
 | `HIGH` | Any resource is being **destroyed** or **replaced** (destroy + recreate) |
 | `MEDIUM` | Updates to critical infrastructure: databases, load balancers, security groups, IAM roles, or networking resources |
 | `LOW` | Only creates, or updates to non-critical resources |
+
+### Cost estimate confidence logic
+
+Confidence reflects how certain Claude is about the cost figures, not the risk of the plan itself.
+
+| Level | Meaning |
+|---|---|
+| `HIGH` | All resources in the plan have well-known, stable list pricing (e.g. standard EC2 instance types, RDS instances, S3 buckets) and no unusual configuration that would make pricing ambiguous |
+| `MEDIUM` | At least some resources required assumptions — for example, an instance type was not specified, a managed service has usage-based pricing that varies by workload, or a resource spans multiple tiers |
+| `LOW` | Many resources have uncertain or highly variable pricing, the plan contains resource types with little publicly documented pricing, or the configuration is too sparse to make a reliable estimate |
+
+Costs are only estimated for resources being **created** or **replaced**. Resources being **destroyed** or that are inherently free (IAM roles, security groups, VPCs, route tables, etc.) are listed with a cost of `$0.00`. All figures assume on-demand pricing in a standard region (e.g. `us-east-1`) unless the plan specifies otherwise.
 
 ---
 
@@ -57,9 +70,10 @@ tf-plan-explainer/
 │           └── route.ts        # POST /api/explain → validates input → calls Claude → returns JSON
 ├── components/
 │   ├── PlanInput.tsx           # Textarea, character counter, submit button, Ctrl+Enter shortcut
-│   └── RiskSummary.tsx         # Risk badge, counts grid, warnings box, per-resource change list
+│   ├── RiskSummary.tsx         # Risk badge, counts grid, warnings box, per-resource change list
+│   └── CostEstimate.tsx        # Provider badge, monthly/yearly totals, per-resource cost breakdown
 ├── types/
-│   └── analysis.ts             # Shared TypeScript types (PlanAnalysis, ResourceChange, RiskLevel)
+│   └── analysis.ts             # Shared TypeScript types (PlanAnalysis, CostEstimate, ResourceCost, ...)
 ├── .env.local.example          # Environment variable template
 ├── next.config.ts
 ├── tailwind.config.ts
@@ -91,16 +105,23 @@ The system prompt instructs Claude to:
 - Write a 2–3 sentence plain-English overview
 - Write a one-sentence explanation for each changed resource
 - Populate the warnings array with anything that could cause data loss, downtime, or security exposure
+- Estimate monthly USD costs for each resource being created or replaced, and return a `costEstimate` block alongside the risk analysis
 
 Claude is explicitly told to return **only raw JSON** — no markdown, no code fences, no prose — so the response can be fed directly into `JSON.parse()`.
 
-### 4. UI renders the result (`components/RiskSummary.tsx`)
+### 4. UI renders the result
 
-The parsed `PlanAnalysis` object is passed to `RiskSummary`, which renders:
+**`components/RiskSummary.tsx`** renders the risk analysis:
 - A color-coded risk badge (red / yellow / green)
 - Three count cards (added / changed / destroyed)
 - A red warning box if any warnings were generated
 - A row per resource change, with an action icon (`+` / `~` / `-` / `±`), the resource name, the plain-English description, and a "destructive" tag where applicable
+
+**`components/CostEstimate.tsx`** renders the cost estimate below the risk summary:
+- A color-coded provider badge (orange = AWS, blue = Azure, red = GCP, gray = Unknown) with a confidence pill (HIGH / MEDIUM / LOW)
+- Two large cards showing the monthly and yearly USD totals
+- A breakdown table with one row per resource: name, type, estimated monthly cost, and the pricing assumptions used
+- A disclaimer noting that estimates are approximate
 
 ---
 
@@ -188,6 +209,7 @@ Plan: 1 to add, 0 to change, 1 to destroy.
 
 ```ts
 export type RiskLevel = 'HIGH' | 'MEDIUM' | 'LOW';
+export type CloudProvider = 'AWS' | 'Azure' | 'GCP' | 'Unknown';
 
 export interface ResourceChange {
   resource: string;       // e.g. "aws_instance.web"
@@ -196,12 +218,30 @@ export interface ResourceChange {
   isDestructive: boolean;
 }
 
+export interface ResourceCost {
+  resource: string;      // e.g. "aws_instance.web_server"
+  type: string;          // e.g. "aws_instance"
+  monthlyCost: number;   // USD; 0 if free or being destroyed
+  assumptions: string;   // e.g. "t3.medium, on-demand, us-east-1, 730 hrs/month"
+}
+
+export interface CostEstimate {
+  provider: CloudProvider;
+  monthlyTotal: number;
+  yearlyTotal: number;
+  currency: 'USD';
+  breakdown: ResourceCost[];
+  confidence: 'HIGH' | 'MEDIUM' | 'LOW';
+  disclaimer: string;
+}
+
 export interface PlanAnalysis {
   riskLevel: RiskLevel;
   summary: string;
   counts: { added: number; changed: number; destroyed: number };
   changes: ResourceChange[];
   warnings: string[];
+  costEstimate: CostEstimate;
 }
 ```
 
