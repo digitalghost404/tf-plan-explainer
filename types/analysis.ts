@@ -66,6 +66,26 @@ export interface ModuleAnalysis {
   disclaimer: string;
 }
 
+export type CISStatus = 'PASS' | 'FAIL' | 'NOT_APPLICABLE';
+
+export interface CISFinding {
+  controlId: string;
+  controlTitle: string;
+  section: string;
+  status: CISStatus;
+  affectedResources: string[];
+  description: string;
+  remediationSnippet?: string;
+}
+
+export interface CISComplianceReport {
+  findings: CISFinding[];
+  passCount: number;
+  failCount: number;
+  notApplicableCount: number;
+  disclaimer: string;
+}
+
 export interface PlanAnalysis {
   riskLevel: RiskLevel;
   summary: string;
@@ -75,4 +95,5 @@ export interface PlanAnalysis {
   costEstimate: CostEstimate;
   vulnerabilityContext: VulnerabilityContext;
   moduleAnalysis: ModuleAnalysis;
+  cisCompliance: CISComplianceReport;
 }

@@ -5,6 +5,7 @@ import PlanInput from '@/components/PlanInput';
 import RiskSummary from '@/components/RiskSummary';
 import VulnerabilityReport from '@/components/VulnerabilityReport';
 import ModuleReport from '@/components/ModuleReport';
+import ComplianceReport from '@/components/ComplianceReport';
 import CostEstimate from '@/components/CostEstimate';
 import DownloadReportButton from '@/components/DownloadReportButton';
 import type { PlanAnalysis } from '@/types/analysis';
@@ -23,7 +24,7 @@ export default function Home() {
     setAnalysis(null);
 
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 60_000);
+    const timeoutId = setTimeout(() => controller.abort(), 120_000);
 
     try {
       const res = await fetch('/api/explain', {
@@ -97,6 +98,7 @@ export default function Home() {
           <RiskSummary analysis={analysis} />
           <VulnerabilityReport vulnerabilityContext={analysis.vulnerabilityContext} />
           <ModuleReport moduleAnalysis={analysis.moduleAnalysis} />
+          <ComplianceReport cisCompliance={analysis.cisCompliance} />
           <CostEstimate estimate={analysis.costEstimate} />
         </section>
       )}

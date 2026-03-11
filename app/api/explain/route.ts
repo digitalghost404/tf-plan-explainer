@@ -4,7 +4,10 @@ import type { PlanAnalysis } from '@/types/analysis';
 
 const client = new Anthropic();
 
-const SYSTEM_PROMPT = `You are a Terraform plan risk analyst and cloud cost estimator. When given Terraform plan output, analyze it and respond with ONLY valid JSON — no markdown, no explanation, no code fences.
+// ── Prompt A: core analysis ───────────────────────────────────────────────────
+// Handles: riskLevel, summary, counts, changes, warnings, costEstimate, moduleAnalysis
+
+const SYSTEM_PROMPT_CORE = `You are a Terraform plan risk analyst and cloud cost estimator. When given Terraform plan output, analyze it and respond with ONLY valid JSON — no markdown, no explanation, no code fences.
 
 The JSON must match this exact shape:
 {
@@ -40,22 +43,6 @@ The JSON must match this exact shape:
     ],
     "confidence": "HIGH" | "MEDIUM" | "LOW",
     "disclaimer": "one sentence disclaimer about estimate accuracy"
-  },
-  "vulnerabilityContext": {
-    "findings": [
-      {
-        "resource": "resource_type.resource_name",
-        "resourceType": "resource_type",
-        "currentVersion": "engine/runtime and version string",
-        "cveId": "CVE-YYYY-NNNNN or N/A",
-        "severity": "CRITICAL" | "HIGH" | "MEDIUM" | "LOW" | "INFORMATIONAL",
-        "description": "Plain-English explanation of the vulnerability",
-        "recommendation": "Specific remediation: upgrade to version X.Y.Z",
-        "remediationSnippet": "minimal HCL resource block with the fix applied, e.g. bumped engine_version"
-      }
-    ],
-    "scannedResources": number,
-    "disclaimer": "one sentence noting findings are based on training data with a knowledge cutoff"
   },
   "moduleAnalysis": {
     "findings": [
@@ -96,16 +83,6 @@ Cost estimation rules:
 - confidence: HIGH if all resources have well-known, stable pricing; MEDIUM if some assumptions were necessary; LOW if many resources have uncertain or highly variable pricing
 - disclaimer: one sentence noting estimates are approximate and based on standard assumptions
 
-Vulnerability scanning rules:
-- Scan all resources for explicit version attributes: engine_version, kubernetes_version, runtime, ami_id, node_version, cluster_version, image, etc.
-- For each versioned resource, check against known CVEs and security advisories from your training data
-- Include CRITICAL/HIGH/MEDIUM findings; include LOW/INFORMATIONAL only if the version is significantly out of date
-- If no version attribute is present on a resource, skip it — do not assume defaults
-- remediationSnippet for each finding: a minimal HCL resource block showing only the resource type, name, and the corrected version attribute; keep it concise
-- scannedResources = count of resources that had at least one version attribute checked
-- If no versioned resources found, return findings: []
-- Invalid plan fallback for vulnerabilityContext: { "findings": [], "scannedResources": 0, "disclaimer": "No resources detected." }
-
 Module analysis rules:
 - Detect all module blocks in the plan; extract source and version pin for each
 - isPinned = false if no version constraint is present — always flag as needing a pin
@@ -116,7 +93,80 @@ Module analysis rules:
 - If no modules found: findings: [], scannedModules: 0
 - Invalid plan fallback for moduleAnalysis: { "findings": [], "scannedModules": 0, "disclaimer": "No modules detected." }
 
-If the input is not a valid Terraform plan, set riskLevel to "LOW", summary to "No valid Terraform plan detected.", counts to all zeros, changes to [], warnings to [], costEstimate to { "provider": "Unknown", "monthlyTotal": 0, "yearlyTotal": 0, "currency": "USD", "breakdown": [], "confidence": "HIGH", "disclaimer": "No resources detected." }, vulnerabilityContext to { "findings": [], "scannedResources": 0, "disclaimer": "No resources detected." }, and moduleAnalysis to { "findings": [], "scannedModules": 0, "disclaimer": "No modules detected." }.`;
+If the input is not a valid Terraform plan, return: { "riskLevel": "LOW", "summary": "No valid Terraform plan detected.", "counts": { "added": 0, "changed": 0, "destroyed": 0 }, "changes": [], "warnings": [], "costEstimate": { "provider": "Unknown", "monthlyTotal": 0, "yearlyTotal": 0, "currency": "USD", "breakdown": [], "confidence": "HIGH", "disclaimer": "No resources detected." }, "moduleAnalysis": { "findings": [], "scannedModules": 0, "disclaimer": "No modules detected." } }`;
+
+// ── Prompt B: security analysis ───────────────────────────────────────────────
+// Handles: vulnerabilityContext, cisCompliance
+
+const SYSTEM_PROMPT_SECURITY = `You are a Terraform plan security analyst. When given Terraform plan output, analyze it and respond with ONLY valid JSON — no markdown, no explanation, no code fences.
+
+The JSON must match this exact shape:
+{
+  "vulnerabilityContext": {
+    "findings": [
+      {
+        "resource": "resource_type.resource_name",
+        "resourceType": "resource_type",
+        "currentVersion": "engine/runtime and version string",
+        "cveId": "CVE-YYYY-NNNNN or N/A",
+        "severity": "CRITICAL" | "HIGH" | "MEDIUM" | "LOW" | "INFORMATIONAL",
+        "description": "Plain-English explanation of the vulnerability",
+        "recommendation": "Specific remediation: upgrade to version X.Y.Z",
+        "remediationSnippet": "minimal HCL resource block with the fix applied, e.g. bumped engine_version"
+      }
+    ],
+    "scannedResources": number,
+    "disclaimer": "one sentence noting findings are based on training data with a knowledge cutoff"
+  },
+  "cisCompliance": {
+    "findings": [
+      {
+        "controlId": "CIS 5.2",
+        "controlTitle": "Ensure no security groups allow ingress from 0.0.0.0/0 to port 22",
+        "section": "Networking",
+        "status": "FAIL" | "PASS" | "NOT_APPLICABLE",
+        "affectedResources": ["aws_security_group.old_db"],
+        "description": "one sentence describing what was found",
+        "remediationSnippet": "optional HCL block — FAIL findings only"
+      }
+    ],
+    "passCount": number,
+    "failCount": number,
+    "notApplicableCount": number,
+    "disclaimer": "Based on CIS AWS Foundations Benchmark v1.4; evaluates only configuration visible in the plan"
+  }
+}
+
+Vulnerability scanning rules:
+- Scan all resources for explicit version attributes: engine_version, kubernetes_version, runtime, ami_id, node_version, cluster_version, image, etc.
+- For each versioned resource, check against known CVEs and security advisories from your training data
+- Include CRITICAL/HIGH/MEDIUM findings; include LOW/INFORMATIONAL only if the version is significantly out of date
+- If no version attribute is present on a resource, skip it — do not assume defaults
+- remediationSnippet for each finding: a minimal HCL resource block showing only the resource type, name, and the corrected version attribute; keep it concise
+- scannedResources = count of resources that had at least one version attribute checked
+- If no versioned resources found, return findings: []
+- Invalid plan fallback for vulnerabilityContext: { "findings": [], "scannedResources": 0, "disclaimer": "No resources detected." }
+
+CIS AWS Foundations Benchmark v1.4 compliance rules:
+Evaluate exactly these 11 controls and emit one finding per control:
+  CIS 1.16 (IAM, "Ensure IAM policies are not attached directly to users"): FAIL if any aws_iam_user_policy or aws_iam_user_policy_attachment resource is present; PASS if IAM users exist but no direct policy attachments; NOT_APPLICABLE if no IAM user resources.
+  CIS 2.1.1 (Storage, "Ensure S3 bucket has server-side encryption enabled"): FAIL if any aws_s3_bucket lacks server_side_encryption_configuration or an aws_s3_bucket_server_side_encryption_configuration resource; PASS if all S3 buckets have it; NOT_APPLICABLE if no S3 resources.
+  CIS 2.1.2 (Storage, "Ensure S3 bucket versioning is enabled"): FAIL if any aws_s3_bucket lacks versioning { enabled = true } or no aws_s3_bucket_versioning with status = "Enabled"; PASS if all have versioning; NOT_APPLICABLE if no S3 resources.
+  CIS 2.1.4 (Storage, "Ensure S3 bucket access logging is enabled"): FAIL if any aws_s3_bucket lacks a logging block or no aws_s3_bucket_logging resource; PASS if all have logging; NOT_APPLICABLE if no S3 resources.
+  CIS 2.2.1 (Storage, "Ensure EBS volumes are encrypted"): FAIL if any aws_ebs_volume has encrypted = false or omits encrypted; PASS if all are encrypted = true; NOT_APPLICABLE if no EBS volume resources.
+  CIS 2.3.1 (Storage, "Ensure RDS instances have encryption at rest enabled"): FAIL if any aws_db_instance has storage_encrypted = false or omits it; PASS if storage_encrypted = true on all; NOT_APPLICABLE if no RDS resources.
+  CIS 2.3.2 (Storage, "Ensure RDS instances have auto minor version upgrade enabled"): FAIL if any aws_db_instance has auto_minor_version_upgrade = false; PASS if true/absent (default true); NOT_APPLICABLE if no RDS resources.
+  CIS 3.1 (Logging, "Ensure CloudTrail is enabled in all regions"): FAIL if any aws_cloudtrail lacks is_multi_region_trail = true; PASS if present and multi-region; NOT_APPLICABLE if no CloudTrail resources.
+  CIS 5.2 (Networking, "Ensure no security groups allow ingress from 0.0.0.0/0 to port 22 or 3389"): FAIL if any aws_security_group ingress rule allows cidr_blocks containing 0.0.0.0/0 or ipv6_cidr_blocks containing ::/0 on port 22 or 3389; PASS if no such rule exists; NOT_APPLICABLE if no security group resources.
+  CIS 5.3 (Networking, "Ensure VPC flow logging is enabled"): FAIL if any aws_vpc exists without a corresponding aws_flow_log; PASS if all VPCs have flow logs; NOT_APPLICABLE if no VPC resources.
+  CIS 5.4 (Networking, "Ensure the default security group of every VPC restricts all traffic"): FAIL if any aws_default_security_group allows any ingress or egress rules; PASS if it has empty ingress/egress; NOT_APPLICABLE if no default security group resources.
+- status rules: PASS = resource config satisfies the control; FAIL = explicit violation visible in plan; NOT_APPLICABLE = no relevant resource types present
+- passCount + failCount + notApplicableCount must equal exactly 11
+- affectedResources: list resource identifiers for FAIL/PASS; empty array for NOT_APPLICABLE
+- remediationSnippet: include only for FAIL findings where a concrete HCL attribute change resolves the violation; omit otherwise
+- Invalid plan fallback for cisCompliance: { "findings": [], "passCount": 0, "failCount": 0, "notApplicableCount": 0, "disclaimer": "No applicable resources detected." }
+
+If the input is not a valid Terraform plan, return: { "vulnerabilityContext": { "findings": [], "scannedResources": 0, "disclaimer": "No resources detected." }, "cisCompliance": { "findings": [], "passCount": 0, "failCount": 0, "notApplicableCount": 0, "disclaimer": "No applicable resources detected." } }`;
 
 export async function POST(request: NextRequest) {
   let plan: string;
@@ -137,31 +187,40 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Plan cannot be empty' }, { status: 400 });
   }
 
-  if (trimmed.length > 100_000) {
-    return NextResponse.json({ error: 'Plan exceeds maximum length of 100,000 characters' }, { status: 400 });
+  if (trimmed.length > 200_000) {
+    return NextResponse.json({ error: 'Plan exceeds maximum length of 200,000 characters' }, { status: 400 });
   }
 
-  try {
-    const message = await client.messages.create({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 8192,
-      system: SYSTEM_PROMPT,
-      messages: [
-        {
-          role: 'user',
-          content: `Analyze this Terraform plan:\n\n${trimmed}`,
-        },
-      ],
-    });
+  const userMessage = `Analyze this Terraform plan:\n\n${trimmed}`;
 
-    const content = message.content[0];
-    if (content.type !== 'text') {
+  try {
+    const [coreMessage, securityMessage] = await Promise.all([
+      client.messages.create({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 8192,
+        system: SYSTEM_PROMPT_CORE,
+        messages: [{ role: 'user', content: userMessage }],
+      }),
+      client.messages.create({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 8192,
+        system: SYSTEM_PROMPT_SECURITY,
+        messages: [{ role: 'user', content: userMessage }],
+      }),
+    ]);
+
+    const coreContent = coreMessage.content[0];
+    const securityContent = securityMessage.content[0];
+
+    if (coreContent.type !== 'text' || securityContent.type !== 'text') {
       return NextResponse.json({ error: 'Unexpected response from Claude' }, { status: 500 });
     }
 
     let analysis: PlanAnalysis;
     try {
-      analysis = JSON.parse(content.text) as PlanAnalysis;
+      const core = JSON.parse(coreContent.text);
+      const security = JSON.parse(securityContent.text);
+      analysis = { ...core, ...security } as PlanAnalysis;
     } catch {
       // Never return Claude's raw response to the client — it may contain
       // partial plan content or internal system prompt details.
