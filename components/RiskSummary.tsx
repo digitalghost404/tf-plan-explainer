@@ -1,6 +1,7 @@
 'use client';
 
-import type { PlanAnalysis, ResourceChange, RiskLevel } from '@/types/analysis';
+import { useState } from 'react';
+import type { PlanAnalysis, ResourceChange, RiskLevel, Warning } from '@/types/analysis';
 
 interface RiskSummaryProps {
   analysis: PlanAnalysis;
@@ -74,7 +75,34 @@ function CountCard({ label, value, color }: { label: string; value: number; colo
   );
 }
 
-function WarningsBox({ warnings }: { warnings: string[] }) {
+function WarningItem({ warning }: { warning: Warning }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <li className="flex flex-col gap-1">
+      <div className="flex items-start gap-2 text-sm text-red-200">
+        <span className="mt-0.5 shrink-0 text-red-400">•</span>
+        <span className="flex-1">{warning.message}</span>
+        {warning.remediationSnippet && (
+          <button
+            onClick={() => setOpen((o) => !o)}
+            className="shrink-0 rounded px-1.5 py-0.5 text-xs text-red-300 hover:bg-red-900/40"
+          >
+            {open ? '▲' : '▼'} Fix
+          </button>
+        )}
+      </div>
+      {open && warning.remediationSnippet && (
+        <div className="ml-4 rounded bg-gray-950 p-3">
+          <pre className="whitespace-pre-wrap overflow-x-auto font-mono text-xs text-green-300">
+            {warning.remediationSnippet}
+          </pre>
+        </div>
+      )}
+    </li>
+  );
+}
+
+function WarningsBox({ warnings }: { warnings: Warning[] }) {
   return (
     <div className="rounded-lg border border-red-800 bg-red-950/50 p-4">
       <div className="mb-2 flex items-center gap-2">
@@ -94,12 +122,9 @@ function WarningsBox({ warnings }: { warnings: string[] }) {
         </svg>
         <h3 className="text-sm font-semibold text-red-300">Warnings</h3>
       </div>
-      <ul className="flex flex-col gap-1.5">
+      <ul className="flex flex-col gap-2">
         {warnings.map((w, i) => (
-          <li key={i} className="flex items-start gap-2 text-sm text-red-200">
-            <span className="mt-0.5 shrink-0 text-red-400">•</span>
-            {w}
-          </li>
+          <WarningItem key={i} warning={w} />
         ))}
       </ul>
     </div>

@@ -3,7 +3,12 @@
 import { useState } from 'react';
 import PlanInput from '@/components/PlanInput';
 import RiskSummary from '@/components/RiskSummary';
+import VulnerabilityReport from '@/components/VulnerabilityReport';
+import KubernetesReport from '@/components/KubernetesReport';
+import ModuleReport from '@/components/ModuleReport';
+import ComplianceReport from '@/components/ComplianceReport';
 import CostEstimate from '@/components/CostEstimate';
+import SavingsPlanReport from '@/components/SavingsPlanReport';
 import DownloadReportButton from '@/components/DownloadReportButton';
 import type { PlanAnalysis } from '@/types/analysis';
 
@@ -21,7 +26,7 @@ export default function Home() {
     setAnalysis(null);
 
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 60_000);
+    const timeoutId = setTimeout(() => controller.abort(), 120_000);
 
     try {
       const res = await fetch('/api/explain', {
@@ -93,7 +98,12 @@ export default function Home() {
             <DownloadReportButton analysis={analysis} />
           </div>
           <RiskSummary analysis={analysis} />
+          <VulnerabilityReport vulnerabilityContext={analysis.vulnerabilityContext} />
+          <KubernetesReport kubernetesAnalysis={analysis.kubernetesAnalysis} />
+          <ComplianceReport cisCompliance={analysis.cisCompliance} />
+          <ModuleReport moduleAnalysis={analysis.moduleAnalysis} />
           <CostEstimate estimate={analysis.costEstimate} />
+          <SavingsPlanReport savingsPlanReport={analysis.savingsPlanReport} />
         </section>
       )}
     </main>
