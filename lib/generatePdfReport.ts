@@ -113,7 +113,10 @@ export async function generatePdfReport(analysis: PlanAnalysis): Promise<void> {
 
     const warnLines: string[] = [];
     for (const w of analysis.warnings) {
-      const wrapped = doc.splitTextToSize(`• ${w}`, contentW - 8);
+      const text = w.remediationSnippet
+        ? `${w.message}\nFix: ${w.remediationSnippet.split('\n')[0]}`
+        : w.message;
+      const wrapped = doc.splitTextToSize(`• ${text}`, contentW - 8);
       warnLines.push(...wrapped);
     }
 
@@ -239,14 +242,13 @@ export async function generatePdfReport(analysis: PlanAnalysis): Promise<void> {
     autoTable(doc, {
       startY: y,
       margin: { left: margin, right: margin },
-      head: [['Resource', 'Version', 'CVE ID', 'Severity', 'Recommendation']],
-      body: vuln.findings.map((f) => [
-        f.resource,
-        f.currentVersion,
-        f.cveId,
-        f.severity,
-        f.recommendation,
-      ]),
+      head: [['Resource', 'Version', 'CVE ID', 'Severity', 'Recommendation / Fix']],
+      body: vuln.findings.map((f) => {
+        const rec = f.remediationSnippet
+          ? `${f.recommendation}\nFix: ${f.remediationSnippet.split('\n')[0]}`
+          : f.recommendation;
+        return [f.resource, f.currentVersion, f.cveId, f.severity, rec];
+      }),
       styles: { fontSize: 8, cellPadding: 2.5 },
       headStyles: { fillColor: [30, 30, 46], textColor: 255, fontStyle: 'bold' },
       columnStyles: {
@@ -282,7 +284,67 @@ export async function generatePdfReport(analysis: PlanAnalysis): Promise<void> {
   doc.text(vulnDisclaimer, margin, y);
   y += vulnDisclaimer.length * 5 + 8;
 
-  // ── 8. Disclaimer ─────────────────────────────────────────────────────────────
+  // ── 8. Module Analysis ────────────────────────────────────────────────────────
+
+  const mod = analysis.moduleAnalysis;
+  sectionTitle('Module Analysis');
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(10);
+  doc.setTextColor(50, 50, 50);
+  doc.text(`${mod.scannedModules} module${mod.scannedModules !== 1 ? 's' : ''} scanned`, margin, y);
+  y += 8;
+
+  if (mod.findings.length > 0) {
+    autoTable(doc, {
+      startY: y,
+      margin: { left: margin, right: margin },
+      head: [['Module', 'Source', 'Pinned', 'Current Version', 'Latest Known', 'Recommendation']],
+      body: mod.findings.map((f) => [
+        f.moduleName,
+        f.source,
+        f.isPinned ? 'Yes' : 'No',
+        f.currentVersion,
+        f.latestKnownVersion,
+        f.recommendation,
+      ]),
+      styles: { fontSize: 8, cellPadding: 2.5 },
+      headStyles: { fillColor: [30, 30, 46], textColor: 255, fontStyle: 'bold' },
+      columnStyles: {
+        0: { cellWidth: 30, font: 'courier' },
+        2: { cellWidth: 15, halign: 'center' },
+        3: { cellWidth: 22 },
+        4: { cellWidth: 22 },
+      },
+      didParseCell(data) {
+        if (data.column.index === 2 && data.section === 'body') {
+          if (data.cell.raw === 'No') data.cell.styles.textColor = [185, 28, 28];
+        }
+        if (data.column.index === 4 && data.section === 'body') {
+          data.cell.styles.textColor = [21, 128, 61];
+        }
+      },
+    });
+
+    y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 6;
+  } else {
+    checkPageBreak(10);
+    doc.setFont('helvetica', 'italic');
+    doc.setFontSize(9);
+    doc.setTextColor(100, 100, 100);
+    doc.text('No module blocks detected.', margin, y);
+    y += 8;
+  }
+
+  doc.setFont('helvetica', 'italic');
+  doc.setFontSize(8);
+  doc.setTextColor(120, 120, 120);
+  const modDisclaimer = doc.splitTextToSize(mod.disclaimer, contentW);
+  checkPageBreak(modDisclaimer.length * 5 + 8);
+  doc.text(modDisclaimer, margin, y);
+  y += modDisclaimer.length * 5 + 8;
+
+  // ── 9. Disclaimer ─────────────────────────────────────────────────────────────
 
   checkPageBreak(20);
   sectionTitle('Disclaimer');
