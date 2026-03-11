@@ -1,4 +1,4 @@
-import type { PlanAnalysis, RiskLevel, VulnerabilitySeverity } from '@/types/analysis';
+import type { PlanAnalysis, RiskLevel, VulnerabilitySeverity, CISStatus } from '@/types/analysis';
 
 const RISK_COLORS: Record<RiskLevel, [number, number, number]> = {
   HIGH:   [185,  28,  28],
@@ -344,7 +344,75 @@ export async function generatePdfReport(analysis: PlanAnalysis): Promise<void> {
   doc.text(modDisclaimer, margin, y);
   y += modDisclaimer.length * 5 + 8;
 
-  // ── 9. Disclaimer ─────────────────────────────────────────────────────────────
+  // ── 9. CIS AWS Foundations Benchmark ─────────────────────────────────────────
+
+  const cis = analysis.cisCompliance;
+  sectionTitle('CIS AWS Foundations Benchmark');
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(10);
+  doc.setTextColor(50, 50, 50);
+  doc.text(
+    `${cis.passCount} pass  ·  ${cis.failCount} fail  ·  ${cis.notApplicableCount} not applicable`,
+    margin, y,
+  );
+  y += 8;
+
+  if (cis.findings.length > 0) {
+    const cisStatusColors: Record<CISStatus, [number, number, number]> = {
+      PASS:           [ 21, 128,  61],
+      FAIL:           [185,  28,  28],
+      NOT_APPLICABLE: [100, 100, 100],
+    };
+
+    autoTable(doc, {
+      startY: y,
+      margin: { left: margin, right: margin },
+      head: [['Control ID', 'Section', 'Status', 'Affected Resources', 'Description']],
+      body: cis.findings.map((f) => [
+        f.controlId,
+        f.section,
+        f.status === 'NOT_APPLICABLE' ? 'N/A' : f.status,
+        f.affectedResources.join(', ') || '—',
+        f.description,
+      ]),
+      styles: { fontSize: 8, cellPadding: 2.5 },
+      headStyles: { fillColor: [30, 30, 46], textColor: 255, fontStyle: 'bold' },
+      columnStyles: {
+        0: { cellWidth: 20, font: 'courier' },
+        1: { cellWidth: 22 },
+        2: { cellWidth: 16, halign: 'center', fontStyle: 'bold' },
+        3: { cellWidth: 40, font: 'courier' },
+      },
+      didParseCell(data) {
+        if (data.column.index === 2 && data.section === 'body') {
+          const raw = String(data.cell.raw ?? '');
+          const statusKey = raw === 'N/A' ? 'NOT_APPLICABLE' : raw as CISStatus;
+          const c = cisStatusColors[statusKey];
+          if (c) data.cell.styles.textColor = c;
+        }
+      },
+    });
+
+    y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 6;
+  } else {
+    checkPageBreak(10);
+    doc.setFont('helvetica', 'italic');
+    doc.setFontSize(9);
+    doc.setTextColor(100, 100, 100);
+    doc.text('No applicable resources detected.', margin, y);
+    y += 8;
+  }
+
+  doc.setFont('helvetica', 'italic');
+  doc.setFontSize(8);
+  doc.setTextColor(120, 120, 120);
+  const cisDisclaimer = doc.splitTextToSize(cis.disclaimer, contentW);
+  checkPageBreak(cisDisclaimer.length * 5 + 8);
+  doc.text(cisDisclaimer, margin, y);
+  y += cisDisclaimer.length * 5 + 8;
+
+  // ── 10. Disclaimer ────────────────────────────────────────────────────────────
 
   checkPageBreak(20);
   sectionTitle('Disclaimer');
