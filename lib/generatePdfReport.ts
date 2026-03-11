@@ -170,7 +170,7 @@ export async function generatePdfReport(analysis: PlanAnalysis): Promise<void> {
       },
     });
 
-    y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 10;
+    y = (doc as any).lastAutoTable.finalY + 10;
   }
 
   // ── 6. Cost Estimate ──────────────────────────────────────────────────────────
