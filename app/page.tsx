@@ -4,9 +4,11 @@ import { useState } from 'react';
 import PlanInput from '@/components/PlanInput';
 import RiskSummary from '@/components/RiskSummary';
 import VulnerabilityReport from '@/components/VulnerabilityReport';
+import KubernetesReport from '@/components/KubernetesReport';
 import ModuleReport from '@/components/ModuleReport';
 import ComplianceReport from '@/components/ComplianceReport';
 import CostEstimate from '@/components/CostEstimate';
+import SavingsPlanReport from '@/components/SavingsPlanReport';
 import DownloadReportButton from '@/components/DownloadReportButton';
 import type { PlanAnalysis } from '@/types/analysis';
 
@@ -97,9 +99,11 @@ export default function Home() {
           </div>
           <RiskSummary analysis={analysis} />
           <VulnerabilityReport vulnerabilityContext={analysis.vulnerabilityContext} />
-          <ModuleReport moduleAnalysis={analysis.moduleAnalysis} />
+          <KubernetesReport kubernetesAnalysis={analysis.kubernetesAnalysis} />
           <ComplianceReport cisCompliance={analysis.cisCompliance} />
+          <ModuleReport moduleAnalysis={analysis.moduleAnalysis} />
           <CostEstimate estimate={analysis.costEstimate} />
+          <SavingsPlanReport savingsPlanReport={analysis.savingsPlanReport} />
         </section>
       )}
     </main>

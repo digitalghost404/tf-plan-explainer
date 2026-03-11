@@ -98,6 +98,7 @@ If the input is not a valid Terraform plan, return: { "riskLevel": "LOW", "summa
 // ── Prompt B: security analysis ───────────────────────────────────────────────
 // Handles: vulnerabilityContext, cisCompliance
 
+
 const SYSTEM_PROMPT_SECURITY = `You are a Terraform plan security analyst. When given Terraform plan output, analyze it and respond with ONLY valid JSON — no markdown, no explanation, no code fences.
 
 The JSON must match this exact shape:
@@ -168,6 +169,117 @@ Evaluate exactly these 11 controls and emit one finding per control:
 
 If the input is not a valid Terraform plan, return: { "vulnerabilityContext": { "findings": [], "scannedResources": 0, "disclaimer": "No resources detected." }, "cisCompliance": { "findings": [], "passCount": 0, "failCount": 0, "notApplicableCount": 0, "disclaimer": "No applicable resources detected." } }`;
 
+// ── Prompt C: Kubernetes deep analysis ────────────────────────────────────────
+// Handles: kubernetesAnalysis
+
+const SYSTEM_PROMPT_KUBERNETES = `You are a Kubernetes and Terraform security analyst. When given Terraform plan output, analyze it and respond with ONLY valid JSON — no markdown, no explanation, no code fences.
+
+The JSON must match this exact shape:
+{
+  "kubernetesAnalysis": {
+    "findings": [
+      {
+        "resource": "resource_type.resource_name",
+        "resourceType": "resource_type",
+        "checkType": "DEPRECATED_API" | "POD_SECURITY" | "NETWORK_POLICY" | "RBAC" | "HELM_CONFIG",
+        "severity": "HIGH" | "MEDIUM" | "LOW",
+        "description": "Plain-English explanation of the issue",
+        "recommendation": "Specific remediation advice",
+        "remediationSnippet": "minimal HCL resource block showing the fix (optional — omit if no concrete HCL change resolves it)"
+      }
+    ],
+    "scannedResources": number,
+    "disclaimer": "one sentence noting findings are based on training data with a knowledge cutoff"
+  }
+}
+
+Scan ONLY these resource types (ignore all others):
+kubernetes_deployment, kubernetes_daemonset, kubernetes_statefulset, kubernetes_pod, kubernetes_job, kubernetes_cronjob, kubernetes_network_policy, kubernetes_cluster_role_binding, kubernetes_role_binding, helm_release, aws_eks_cluster, azurerm_kubernetes_cluster, google_container_cluster, aws_eks_node_group.
+
+scannedResources = count of resources from the above list present in the plan.
+
+Check rules (emit one finding per violation):
+
+DEPRECATED_API (HIGH):
+- api_version = "extensions/v1beta1" → removed in Kubernetes 1.16
+- api_version = "batch/v1beta1" → removed in Kubernetes 1.25
+- api_version = "networking.k8s.io/v1beta1" → removed in Kubernetes 1.22
+- api_version = "policy/v1beta1" for PodSecurityPolicy → removed in Kubernetes 1.25
+
+POD_SECURITY HIGH: any container spec with privileged = true, allow_privilege_escalation = true, capabilities.add containing "SYS_ADMIN" or "NET_RAW", or host_network = true / host_pid = true
+POD_SECURITY MEDIUM: run_as_non_root = false, run_as_user = 0, or capabilities.add containing "NET_ADMIN", "SYS_PTRACE", or "DAC_OVERRIDE"
+POD_SECURITY LOW: missing read_only_root_filesystem = true on container security context
+
+NETWORK_POLICY (MEDIUM): a kubernetes_namespace resource exists without a corresponding kubernetes_network_policy in the plan
+
+RBAC (HIGH): a kubernetes_cluster_role_binding with role_ref.name = "cluster-admin" bound to a subject whose name does not start with "system:"
+
+HELM_CONFIG HIGH: helm_release with force_update = true or recreate_pods = true
+HELM_CONFIG MEDIUM: helm_release where both atomic = false and wait = false are set (explicit insecure combination)
+
+Include remediationSnippet for all findings where a concrete HCL attribute change resolves the issue.
+
+If no Kubernetes resources from the scan list are present, return: { "kubernetesAnalysis": { "findings": [], "scannedResources": 0, "disclaimer": "No Kubernetes resources detected." } }
+If the input is not a valid Terraform plan, return the same empty fallback.`;
+
+// ── Prompt D: savings plan recommendations ────────────────────────────────────
+// Handles: savingsPlanReport
+
+const SYSTEM_PROMPT_SAVINGS = `You are a cloud cost optimization analyst specializing in reserved pricing. When given Terraform plan output, analyze it and respond with ONLY valid JSON — no markdown, no explanation, no code fences.
+
+The JSON must match this exact shape:
+{
+  "savingsPlanReport": {
+    "opportunities": [
+      {
+        "resource": "resource_type.resource_name",
+        "resourceType": "resource_type",
+        "instanceType": "instance/tier string (e.g. t3.micro, db.t3.large)",
+        "onDemandMonthly": number,
+        "reserved1yrMonthly": number,
+        "reserved3yrMonthly": number,
+        "savingsMonthly1yr": number,
+        "savingsPercent1yr": number,
+        "savingsMonthly3yr": number,
+        "savingsPercent3yr": number
+      }
+    ],
+    "totalOnDemandMonthly": number,
+    "totalSavingsMonthly1yr": number,
+    "totalSavingsMonthly3yr": number,
+    "disclaimer": "one sentence noting estimates use standard no-upfront reserved pricing and actual savings vary"
+  }
+}
+
+Eligible resource types (CREATED or REPLACED actions only — skip UPDATED or DESTROYED):
+aws_instance, aws_db_instance, aws_elasticache_cluster, aws_elasticache_replication_group, aws_redshift_cluster, aws_opensearch_domain, azurerm_virtual_machine, azurerm_linux_virtual_machine, azurerm_windows_virtual_machine, azurerm_sql_database, google_compute_instance, google_sql_database_instance.
+
+Discount rates (no-upfront reserved vs on-demand):
+- AWS EC2 (aws_instance): 1yr ~38%, 3yr ~57%
+- AWS RDS (aws_db_instance): 1yr ~35%, 3yr ~55%
+- AWS ElastiCache (aws_elasticache_cluster / aws_elasticache_replication_group): 1yr ~38%, 3yr ~55%
+- AWS Redshift (aws_redshift_cluster): 1yr ~38%, 3yr ~55%
+- AWS OpenSearch (aws_opensearch_domain): 1yr ~38%, 3yr ~55%
+- Azure VM (azurerm_virtual_machine / azurerm_linux_virtual_machine / azurerm_windows_virtual_machine): 1yr ~37%, 3yr ~52%
+- Azure SQL (azurerm_sql_database): 1yr ~37%, 3yr ~52%
+- GCP Compute (google_compute_instance): 1yr ~37%, 3yr ~55%
+- GCP SQL (google_sql_database_instance): 1yr ~37%, 3yr ~55%
+
+Formulas:
+- onDemandMonthly: estimate using on-demand pricing for the detected instance_type / node_type / machine_type (730 hrs/month, us-east-1 or equivalent default region, standard tier)
+- reserved1yrMonthly = round(onDemandMonthly * (1 - rate1yr), 2)
+- reserved3yrMonthly = round(onDemandMonthly * (1 - rate3yr), 2)
+- savingsMonthly1yr = round(onDemandMonthly - reserved1yrMonthly, 2)
+- savingsPercent1yr = round((savingsMonthly1yr / onDemandMonthly) * 100, 1)
+- savingsMonthly3yr = round(onDemandMonthly - reserved3yrMonthly, 2)
+- savingsPercent3yr = round((savingsMonthly3yr / onDemandMonthly) * 100, 1)
+- totalOnDemandMonthly = sum of all onDemandMonthly
+- totalSavingsMonthly1yr = sum of all savingsMonthly1yr
+- totalSavingsMonthly3yr = sum of all savingsMonthly3yr
+
+If no eligible resources are present (CREATED or REPLACED), return: { "savingsPlanReport": { "opportunities": [], "totalOnDemandMonthly": 0, "totalSavingsMonthly1yr": 0, "totalSavingsMonthly3yr": 0, "disclaimer": "No eligible reserved-pricing resources (EC2, RDS, ElastiCache, etc.) detected in this plan." } }
+If the input is not a valid Terraform plan, return the same empty fallback.`;
+
 export async function POST(request: NextRequest) {
   let plan: string;
 
@@ -194,7 +306,7 @@ export async function POST(request: NextRequest) {
   const userMessage = `Analyze this Terraform plan:\n\n${trimmed}`;
 
   try {
-    const [coreMessage, securityMessage] = await Promise.all([
+    const [coreMessage, securityMessage, kubernetesMessage, savingsMessage] = await Promise.all([
       client.messages.create({
         model: 'claude-sonnet-4-6',
         max_tokens: 8192,
@@ -207,21 +319,53 @@ export async function POST(request: NextRequest) {
         system: SYSTEM_PROMPT_SECURITY,
         messages: [{ role: 'user', content: userMessage }],
       }),
+      client.messages.create({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 4096,
+        system: SYSTEM_PROMPT_KUBERNETES,
+        messages: [{ role: 'user', content: userMessage }],
+      }),
+      client.messages.create({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 4096,
+        system: SYSTEM_PROMPT_SAVINGS,
+        messages: [{ role: 'user', content: userMessage }],
+      }),
     ]);
 
     const coreContent = coreMessage.content[0];
     const securityContent = securityMessage.content[0];
+    const kubernetesContent = kubernetesMessage.content[0];
+    const savingsContent = savingsMessage.content[0];
 
-    if (coreContent.type !== 'text' || securityContent.type !== 'text') {
+    if (
+      coreContent.type !== 'text' ||
+      securityContent.type !== 'text' ||
+      kubernetesContent.type !== 'text' ||
+      savingsContent.type !== 'text'
+    ) {
       return NextResponse.json({ error: 'Unexpected response from Claude' }, { status: 500 });
+    }
+
+    // Strip markdown fences Claude occasionally emits despite prompt instructions,
+    // e.g. ```json\n{...}\n``` or plain ``` fences.
+    function stripJson(raw: string): string {
+      const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
+      return fenced ? fenced[1].trim() : raw.trim();
     }
 
     let analysis: PlanAnalysis;
     try {
-      const core = JSON.parse(coreContent.text);
-      const security = JSON.parse(securityContent.text);
-      analysis = { ...core, ...security } as PlanAnalysis;
-    } catch {
+      const core       = JSON.parse(stripJson(coreContent.text));
+      const security   = JSON.parse(stripJson(securityContent.text));
+      const kubernetes = JSON.parse(stripJson(kubernetesContent.text));
+      const savings    = JSON.parse(stripJson(savingsContent.text));
+      analysis = { ...core, ...security, ...kubernetes, ...savings } as PlanAnalysis;
+    } catch (parseErr) {
+      // Log which prompt failed to help diagnose future issues.
+      console.error('JSON parse error from Claude response:', {
+        message: parseErr instanceof Error ? parseErr.message : String(parseErr),
+      });
       // Never return Claude's raw response to the client — it may contain
       // partial plan content or internal system prompt details.
       return NextResponse.json({ error: 'Claude returned invalid JSON' }, { status: 500 });

@@ -86,6 +86,46 @@ export interface CISComplianceReport {
   disclaimer: string;
 }
 
+export type KubernetesSeverity = 'HIGH' | 'MEDIUM' | 'LOW';
+export type KubernetesCheckType = 'DEPRECATED_API' | 'POD_SECURITY' | 'NETWORK_POLICY' | 'RBAC' | 'HELM_CONFIG';
+
+export interface KubernetesFinding {
+  resource: string;
+  resourceType: string;
+  checkType: KubernetesCheckType;
+  severity: KubernetesSeverity;
+  description: string;
+  recommendation: string;
+  remediationSnippet?: string;
+}
+
+export interface KubernetesAnalysis {
+  findings: KubernetesFinding[];
+  scannedResources: number;
+  disclaimer: string;
+}
+
+export interface SavingsOpportunity {
+  resource: string;
+  resourceType: string;
+  instanceType: string;
+  onDemandMonthly: number;
+  reserved1yrMonthly: number;
+  reserved3yrMonthly: number;
+  savingsMonthly1yr: number;
+  savingsPercent1yr: number;
+  savingsMonthly3yr: number;
+  savingsPercent3yr: number;
+}
+
+export interface SavingsPlanReport {
+  opportunities: SavingsOpportunity[];
+  totalOnDemandMonthly: number;
+  totalSavingsMonthly1yr: number;
+  totalSavingsMonthly3yr: number;
+  disclaimer: string;
+}
+
 export interface PlanAnalysis {
   riskLevel: RiskLevel;
   summary: string;
@@ -96,4 +136,6 @@ export interface PlanAnalysis {
   vulnerabilityContext: VulnerabilityContext;
   moduleAnalysis: ModuleAnalysis;
   cisCompliance: CISComplianceReport;
+  kubernetesAnalysis: KubernetesAnalysis;
+  savingsPlanReport: SavingsPlanReport;
 }
