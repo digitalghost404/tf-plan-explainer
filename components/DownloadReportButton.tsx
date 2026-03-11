@@ -18,6 +18,7 @@ export default function DownloadReportButton({ analysis }: DownloadReportButtonP
       await generatePdfReport(analysis);
     } catch (err) {
       console.error('Failed to generate PDF report:', err);
+      alert('Failed to generate PDF report. Please check the console for more details.');
     } finally {
       setLoading(false);
     }
