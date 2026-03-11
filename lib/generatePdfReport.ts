@@ -40,7 +40,7 @@ export async function generatePdfReport(analysis: PlanAnalysis): Promise<void> {
   }
 
   function addPageFooters() {
-    const totalPages: number = (doc.internal as unknown as { getNumberOfPages: () => number }).getNumberOfPages();
+    const totalPages: number = doc.getNumberOfPages();
     for (let i = 1; i <= totalPages; i++) {
       doc.setPage(i);
       doc.setFont('helvetica', 'normal');
